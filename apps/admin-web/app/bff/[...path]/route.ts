@@ -19,7 +19,7 @@ async function forward(req: NextRequest, path: string[], body: ArrayBuffer | und
 async function handle(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) {
   if (!csrfOk(req)) return jsonError(403, "csrf", "طلب غير مسموح");
   const { path } = await ctx.params;
-  if (path[0] === "auth") return jsonError(404, "not_found", "غير موجود");
+  if (path[0] === "auth" && path[1] !== "me") return jsonError(404, "not_found", "غير موجود");
   const body = ["GET", "HEAD"].includes(req.method) ? undefined : await req.arrayBuffer();
   let token = req.cookies.get(AT)?.value;
   const rt = req.cookies.get(RT)?.value;
