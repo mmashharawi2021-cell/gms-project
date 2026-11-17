@@ -84,6 +84,15 @@ echo "FastAPI backend is ready and healthy!"
 export PORT="${PORT:-3000}"
 export HOSTNAME="0.0.0.0"
 export GMS_API_INTERNAL_URL="http://127.0.0.1:8000"
+
+# Ensure both port 3000 and port 8080 are open and forwarded so Railway connects seamlessly
+if [ "$PORT" != "8080" ]; then
+    socat TCP-LISTEN:8080,fork,reuseaddr TCP:127.0.0.1:$PORT &
+fi
+if [ "$PORT" != "3000" ]; then
+    socat TCP-LISTEN:3000,fork,reuseaddr TCP:127.0.0.1:$PORT &
+fi
+
 echo "Starting Next.js frontend on port $PORT..."
 cd /srv/web
 exec node server.js
