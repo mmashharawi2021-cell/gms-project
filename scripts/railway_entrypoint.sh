@@ -3,39 +3,39 @@ set -e
 
 echo "=== Starting GMS All-in-One Production Stack ==="
 
-# 1. Setup directories and permissions
-PGDATA="/var/lib/postgresql/16/main"
-mkdir -p /var/run/postgresql "$PGDATA" /var/lib/gms/objects /var/lib/gms/backups /tmp
-chown -R postgres:postgres /var/run/postgresql /var/lib/postgresql "$PGDATA"
+# 1. Setup directories and start PostgreSQL via native Debian service
+mkdir -p /var/run/postgresql /var/lib/postgresql /var/log/postgresql /var/lib/gms/objects /var/lib/gms/backups /tmp
+chown -R postgres:postgres /var/run/postgresql /var/lib/postgresql /var/log/postgresql
 chmod 777 /tmp /var/run/postgresql
-chmod 700 "$PGDATA"
 
-# 2. Initialize PostgreSQL if empty
-if [ -z "$(ls -A "$PGDATA" 2>/dev/null)" ]; then
-    echo "Initializing PostgreSQL data cluster in $PGDATA..."
-    su - postgres -c "/usr/lib/postgresql/16/bin/initdb -D $PGDATA --locale=C.UTF-8"
+echo "Starting PostgreSQL service..."
+if ! pg_lsclusters | grep -q "16"; then
+    echo "Creating PostgreSQL 16 cluster..."
+    pg_createcluster 16 main --locale=C.UTF-8
 fi
 
-# 3. Start PostgreSQL daemon directly in background
-echo "Starting PostgreSQL daemon..."
-su - postgres -c "/usr/lib/postgresql/16/bin/postgres -D $PGDATA -c listen_addresses='127.0.0.1' -c unix_socket_directories='/var/run/postgresql,/tmp'" &
+# Ensure localhost TCP connections are trusted for internal stack
+HBA="/etc/postgresql/16/main/pg_hba.conf"
+if [ -f "$HBA" ]; then
+    sed -i 's/127.0.0.1\/32.*/127.0.0.1\/32            trust/g' "$HBA"
+    sed -i 's/::1\/128.*/::1\/128                 trust/g' "$HBA"
+fi
 
-# 4. Wait for PostgreSQL to be ready
+service postgresql start
+
+# 2. Wait for PostgreSQL to accept connections
 echo "Waiting for PostgreSQL to accept connections..."
-for i in $(seq 1 30); do
-    if su - postgres -c "/usr/lib/postgresql/16/bin/pg_isready -h 127.0.0.1" > /dev/null 2>&1; then
-        echo "PostgreSQL is ready and healthy!"
-        break
-    fi
-    echo "Waiting for postgres ($i/30)..."
+until su - postgres -c "pg_isready" > /dev/null 2>&1; do
+    echo "Waiting for postgres..."
     sleep 1
 done
+echo "PostgreSQL is ready and healthy!"
 
-# 5. Create admin user and database if not exists
+# 3. Create admin user and database if not exists
 su - postgres -c "psql -tc \"SELECT 1 FROM pg_roles WHERE rolname = 'gms_admin'\" | grep -q 1 || psql -c \"CREATE USER gms_admin WITH SUPERUSER PASSWORD '7fCQLs9qSJtFMJAhdysJka-lP1wfD-duzqHumIHm04U';\""
 su - postgres -c "psql -tc \"SELECT 1 FROM pg_database WHERE datname = 'gms'\" | grep -q 1 || psql -c \"CREATE DATABASE gms OWNER gms_admin;\""
 
-# 6. Run GMS migrations & database setup
+# 4. Run GMS migrations & database setup
 export GMS_MIGRATION_DATABASE_URL="postgresql://gms_admin:7fCQLs9qSJtFMJAhdysJka-lP1wfD-duzqHumIHm04U@127.0.0.1:5432/gms"
 export GMS_DB_APP_USER="gms_app"
 export GMS_DB_APP_PASSWORD="5-Ns4ZgVAD9MqEOuOc29on1ydfOalH9l7cLoepgk4rg"
@@ -69,7 +69,7 @@ else:
 conn.close()
 "
 
-# 7. Start FastAPI backend on 127.0.0.1:8000
+# 5. Start FastAPI backend on 127.0.0.1:8000
 echo "Starting FastAPI backend on 127.0.0.1:8000..."
 uvicorn app.main:create_app --factory --host 127.0.0.1 --port 8000 --proxy-headers &
 
@@ -80,12 +80,12 @@ until curl -fsS http://127.0.0.1:8000/health > /dev/null 2>&1; do
 done
 echo "FastAPI backend is ready and healthy!"
 
-# 8. Start Next.js Web frontend on $PORT (Railway provides PORT, default 3000)
+# 6. Start Next.js Web frontend on $PORT (Railway provides PORT, default 3000)
 export PORT="${PORT:-3000}"
 export HOSTNAME="0.0.0.0"
 export GMS_API_INTERNAL_URL="http://127.0.0.1:8000"
 
-# Ensure both port 3000 and port 8080 are open and forwarded so Railway connects seamlessly
+# Ensure both port 3000 and port 8080 forward properly
 if [ "$PORT" != "8080" ]; then
     socat TCP-LISTEN:8080,fork,reuseaddr TCP:127.0.0.1:$PORT &
 fi
