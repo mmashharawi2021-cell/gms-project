@@ -1,0 +1,12 @@
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/var
+**/.env
+**/node_modules
+**/.next
+apps/field-mobile/build
+apps/field-mobile/.dart_tool
+reference
+docs
+*.zip

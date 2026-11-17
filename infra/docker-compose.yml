@@ -1,0 +1,89 @@
+# GMS — local/staging stack. Secrets come from infra/.env (copy .env.example; never commit .env).
+# Ports are bound to 127.0.0.1 only; exposing the system needs a TLS reverse proxy (docs/deployment-guide.md).
+name: gms
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: gms
+      POSTGRES_USER: ${GMS_DB_ADMIN_USER}
+      POSTGRES_PASSWORD: ${GMS_DB_ADMIN_PASSWORD}
+    volumes: [db-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d gms"]
+      interval: 5s
+      retries: 20
+
+  objects:
+    # S3-compatible private object store for meter photos (SeaweedFS). Credentials come from .env.
+    image: chrislusf/seaweedfs:3.97
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        printf '{"identities":[{"name":"gms","credentials":[{"accessKey":"%s","secretKey":"%s"}],"actions":["Admin","Read","Write","List","Tagging"]}]}'
+        "$$S3_KEY" "$$S3_SECRET" > /tmp/s3.json &&
+        exec weed server -dir=/data -s3 -s3.port=8333 -s3.config=/tmp/s3.json -volume.max=0 -master.volumeSizeLimitMB=1024
+    environment:
+      S3_KEY: ${GMS_S3_ACCESS_KEY}
+      S3_SECRET: ${GMS_S3_SECRET_KEY}
+    volumes: [object-data:/data]
+
+  migrate:
+    build: {context: .., dockerfile: services/api/Dockerfile}
+    image: gms-api:local
+    depends_on: {db: {condition: service_healthy}}
+    command: ["python", "-m", "app.ops.dbsetup"]
+    environment:
+      GMS_MIGRATION_DATABASE_URL: postgresql://${GMS_DB_ADMIN_USER}:${GMS_DB_ADMIN_PASSWORD}@db:5432/gms
+      GMS_DB_APP_USER: ${GMS_DB_APP_USER}
+      GMS_DB_APP_PASSWORD: ${GMS_DB_APP_PASSWORD}
+    restart: "no"
+
+  api:
+    image: gms-api:local
+    restart: unless-stopped
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      objects: {condition: service_started}
+    environment: &apienv
+      GMS_DATABASE_URL: postgresql://${GMS_DB_APP_USER}:${GMS_DB_APP_PASSWORD}@db:5432/gms
+      GMS_JWT_SECRET: ${GMS_JWT_SECRET}
+      GMS_STORAGE_BACKEND: s3
+      GMS_S3_ENDPOINT: objects:8333
+      GMS_S3_ACCESS_KEY: ${GMS_S3_ACCESS_KEY}
+      GMS_S3_SECRET_KEY: ${GMS_S3_SECRET_KEY}
+      GMS_S3_BUCKET: gms-photos
+      GMS_S3_SECURE: "false"
+      GMS_BACKUP_DIR: /var/lib/gms/backups
+    volumes: [backups:/var/lib/gms/backups]
+    ports: ["127.0.0.1:${GMS_API_PORT:-8000}:8000"]
+
+  backup:
+    image: gms-api:local
+    restart: unless-stopped
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    command: ["python", "-m", "app.ops.scheduler"]
+    healthcheck: {disable: true}
+    environment:
+      <<: *apienv
+      GMS_BACKUP_DATABASE_URL: postgresql://${GMS_DB_ADMIN_USER}:${GMS_DB_ADMIN_PASSWORD}@db:5432/gms
+      GMS_BACKUP_RETENTION_DAYS: "30"
+      GMS_BACKUP_HOUR: "2"
+    volumes: [backups:/var/lib/gms/backups]
+
+  web:
+    build: {context: .., dockerfile: apps/admin-web/Dockerfile}
+    image: gms-web:local
+    restart: unless-stopped
+    depends_on: {api: {condition: service_healthy}}
+    environment:
+      GMS_API_INTERNAL_URL: http://api:8000
+    ports: ["127.0.0.1:${GMS_WEB_PORT:-3000}:3000"]
+
+volumes:
+  db-data: {}
+  object-data: {}
+  backups: {}

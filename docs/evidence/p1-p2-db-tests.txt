@@ -1,0 +1,13 @@
+============================= test session starts =============================
+platform win32 -- Python 3.14.10, pytest-9.2.0, pluggy-1.7.0
+rootdir: C:\Users\mozar\Desktop\VS\GMS_Claude_Code_Project\services\api
+configfile: pyproject.toml
+plugins: anyio-4.16.0
+collected 38 items
+
+tests\db\test_concurrency.py .........                                   [ 23%]
+tests\db\test_finance.py ............                                    [ 55%]
+tests\db\test_integrity.py .....                                         [ 68%]
+tests\db\test_workflow.py ............                                   [100%]
+
+============================= 38 passed in 21.10s =============================
