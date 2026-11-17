@@ -49,23 +49,40 @@ echo "Applying migrations and database setup..."
 cd /srv/api
 python -m app.ops.dbsetup
 
-# Create default manager if no users exist
+# Create or update default manager (permanent password, no forced change)
 python -c "
-import psycopg
+import os, psycopg
+from app.security import hash_password
+
 conn = psycopg.connect('postgresql://gms_admin:7fCQLs9qSJtFMJAhdysJka-lP1wfD-duzqHumIHm04U@127.0.0.1:5432/gms')
 cur = conn.cursor()
-cur.execute('SELECT COUNT(*) FROM gms.app_users')
-if cur.fetchone()[0] == 0:
-    from app.security import hash_password
-    pw_hash = hash_password('TempPass2026')
+mgr_user = os.environ.get('GMS_MANAGER_USERNAME', 'mmashharawi').strip().lower()
+mgr_pass = os.environ.get('GMS_MANAGER_PASSWORD', os.environ.get('ADMIN_PASSWORD', 'TempPass2026')).strip()
+
+cur.execute('SELECT id FROM gms.app_users WHERE username = %s', (mgr_user,))
+row = cur.fetchone()
+
+pw_hash = hash_password(mgr_pass)
+if not row:
     cur.execute('''
         INSERT INTO gms.app_users (username, password_hash, full_name, role, must_change_password)
-        VALUES ('mmashharawi', %s, 'مهند المشهراوي', 'manager', true)
-    ''', (pw_hash,))
+        VALUES (%s, %s, 'مهند المشهراوي', 'manager', false)
+    ''', (mgr_user, pw_hash))
     conn.commit()
-    print('Created default manager: mmashharawi')
+    print(f'Created permanent manager: {mgr_user}')
 else:
-    print('Users already exist in database.')
+    # Always keep permanent password without forcing change
+    if os.environ.get('GMS_MANAGER_PASSWORD') or os.environ.get('ADMIN_PASSWORD'):
+        cur.execute('''
+            UPDATE gms.app_users 
+            SET password_hash = %s, must_change_password = false 
+            WHERE username = %s
+        ''', (pw_hash, mgr_user))
+        conn.commit()
+        print(f'Updated manager {mgr_user} password from environment variable.')
+    else:
+        cur.execute('UPDATE gms.app_users SET must_change_password = false WHERE username = %s', (mgr_user,))
+        conn.commit()
 conn.close()
 "
 
