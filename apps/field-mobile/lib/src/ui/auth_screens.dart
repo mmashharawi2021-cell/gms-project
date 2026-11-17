@@ -64,17 +64,12 @@ class _SetupState extends State<SetupScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Executive Power Shield Crest
+                    // Executive Generator Logo Crest
                     Container(
-                      width: 82,
-                      height: 82,
+                      width: 90,
+                      height: 90,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFFD97706), Color(0xFFF59E0B)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
                         boxShadow: [
                           BoxShadow(
                             color: const Color(0xFFF59E0B).withValues(alpha: 0.35),
@@ -83,8 +78,18 @@ class _SetupState extends State<SetupScreen> {
                           ),
                         ],
                       ),
-                      child: const Center(
-                        child: Icon(Icons.bolt_rounded, size: 50, color: Colors.white),
+                      child: ClipOval(
+                        child: Image.asset(
+                          'assets/generator_logo.png',
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, _, _) => Container(
+                            decoration: const BoxDecoration(
+                              shape: BoxShape.circle,
+                              gradient: LinearGradient(colors: [Color(0xFFD97706), Color(0xFFF59E0B)]),
+                            ),
+                            child: const Icon(Icons.bolt_rounded, size: 50, color: Colors.white),
+                          ),
+                        ),
                       ),
                     ),
                     const SizedBox(height: 18),
@@ -538,11 +543,10 @@ class _LockState extends State<LockScreen> {
               child: ListView(shrinkWrap: true, padding: const EdgeInsets.all(28), children: [
                 Center(
                   child: Container(
-                    width: 72,
-                    height: 72,
+                    width: 76,
+                    height: 76,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      gradient: const LinearGradient(colors: [Color(0xFFD97706), Color(0xFFF59E0B)]),
                       boxShadow: [
                         BoxShadow(
                           color: const Color(0xFFF59E0B).withValues(alpha: 0.35),
@@ -551,7 +555,19 @@ class _LockState extends State<LockScreen> {
                         ),
                       ],
                     ),
-                    child: const Icon(Icons.bolt_rounded, size: 44, color: Colors.white),
+                    child: ClipOval(
+                      child: Image.asset(
+                        'assets/generator_logo.png',
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, _, _) => Container(
+                          decoration: const BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: LinearGradient(colors: [Color(0xFFD97706), Color(0xFFF59E0B)]),
+                          ),
+                          child: const Icon(Icons.bolt_rounded, size: 44, color: Colors.white),
+                        ),
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 16),
