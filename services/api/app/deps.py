@@ -76,6 +76,6 @@ def manager(p: Principal = Depends(active_user)) -> Principal:
 
 
 def employee(p: Principal = Depends(active_user)) -> Principal:
-    if p.role != "employee" or p.device_id is None:
+    if p.role not in ("employee", "manager") or p.device_id is None:
         raise AppError(403, "forbidden", "هذه العملية لتطبيق الموظف الميداني فقط")
     return p
