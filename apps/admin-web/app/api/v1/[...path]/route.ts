@@ -9,8 +9,8 @@ async function proxyToFastApi(req: NextRequest, ctx: { params: Promise<{ path: s
 
   const forwardHeaders = new Headers();
   req.headers.forEach((value, key) => {
-    // Don't forward host or connection headers
-    if (!["host", "connection", "transfer-encoding"].includes(key.toLowerCase())) {
+    // Don't forward host, connection, or content-length headers (fetch calculates them)
+    if (!["host", "connection", "transfer-encoding", "content-length"].includes(key.toLowerCase())) {
       forwardHeaders.set(key, value);
     }
   });
