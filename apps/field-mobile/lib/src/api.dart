@@ -132,12 +132,13 @@ class ApiClient implements FieldApi {
 
   @override
   Future<List<Map<String, dynamic>>> sync(List<Map<String, dynamic>> operations, {String? bootId, int? elapsedMs}) async {
-    final d = await _authed('POST', 'mobile/sync', {
+    final payload = <String, dynamic>{
       'device_now': DateTime.now().toUtc().toIso8601String(),
-      if (bootId != null) 'boot_id': bootId,
-      if (elapsedMs != null) 'elapsed_ms': elapsedMs,
       'operations': operations,
-    }) as Map<String, dynamic>;
+    };
+    if (bootId != null) payload['boot_id'] = bootId;
+    if (elapsedMs != null) payload['elapsed_ms'] = elapsedMs;
+    final d = await _authed('POST', 'mobile/sync', payload) as Map<String, dynamic>;
     return (d['results'] as List).cast<Map<String, dynamic>>();
   }
 

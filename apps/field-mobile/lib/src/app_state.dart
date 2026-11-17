@@ -49,8 +49,8 @@ class AppState extends ChangeNotifier {
   Timer? _timer;
   final _uuid = const Uuid();
 
-  /// Optional build-time pre-fill (flutter build apk --dart-define=GMS_API_URL=https://...). No hidden default server.
-  static const defaultServer = String.fromEnvironment('GMS_API_URL');
+  /// Default production server URL. Can be overridden via build-time --dart-define=GMS_API_URL=...
+  static const defaultServer = String.fromEnvironment('GMS_API_URL', defaultValue: 'https://gms-project-production.up.railway.app');
 
   Future<void> init() async {
     final local = await openLocal();
@@ -108,15 +108,17 @@ class AppState extends ChangeNotifier {
   // ------------------------------------------------------------------ session
   static final _urlRe = RegExp(r'^https?://[^\s/]+');
 
-  Future<void> login(String url, String username, String password, String? code) async {
+  Future<void> login(String url, String username, String password, [String? code]) async {
     var clean = url.trim();
+    if (clean.isEmpty) clean = defaultServer;
     while (clean.endsWith('/')) {
       clean = clean.substring(0, clean.length - 1);
     }
     if (!_urlRe.hasMatch(clean)) throw ApiException(0, 'server_url_required', 'أدخل عنوان الخادم كما زوّدك به المدير');
     if (!kDebugMode && !clean.startsWith('https://')) throw ApiException(0, 'https_required', 'عنوان الخادم يجب أن يبدأ بـ https://');
     _makeApi(clean);
-    final d = await api!.login(username.trim().toLowerCase(), password, await SecureVault.installId(), enrollmentCode: code?.trim());
+    final cleanCode = (code != null && code.trim().isNotEmpty) ? code.trim() : null;
+    final d = await api!.login(username.trim().toLowerCase(), password, await SecureVault.installId(), enrollmentCode: cleanCode);
     await SecureVault.write('server_url', clean);
     serverUrl = clean;
     final user = d['user'] as Map<String, dynamic>;

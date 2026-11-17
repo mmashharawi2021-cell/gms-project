@@ -23,10 +23,13 @@ class UserIn(BaseModel):
     username: str = Field(pattern=r"^[A-Za-z0-9._-]{3,40}$")
     full_name: Text
     role: Literal["manager", "employee"]
+    password: str | None = None
 
 
 class UserPatch(BaseModel):
+    username: str | None = Field(None, pattern=r"^[A-Za-z0-9._-]{3,40}$")
     full_name: Text | None = None
+    password: str | None = None
     is_active: bool | None = None
 
 
@@ -84,11 +87,12 @@ def list_users(role: str | None = None, db: Database = Depends(get_db), m: Princ
 
 @router.post("/users", status_code=201)
 def create_user(body: UserIn, db: Database = Depends(get_db), m: Principal = Depends(manager)):
-    temp = temporary_password()
+    pw = body.password.strip() if body.password and body.password.strip() else temporary_password()
+    must_change = False if (body.password and body.password.strip()) else True
     row = db.one(m.id, f"""INSERT INTO gms.app_users(username,password_hash,full_name,role,must_change_password)
-                         VALUES (%s,%s,%s,%s,true) RETURNING {USER_COLS}""",
-                 (body.username.lower(), hash_password(temp), body.full_name.strip(), body.role))
-    return ok({**row, "temporary_password": temp}, 201)
+                         VALUES (%s,%s,%s,%s,%s) RETURNING {USER_COLS}""",
+                 (body.username.lower(), hash_password(pw), body.full_name.strip(), body.role, must_change))
+    return ok({**row, "temporary_password": pw if must_change else None}, 201)
 
 
 @router.patch("/users/{user_id}")
@@ -96,12 +100,21 @@ def update_user(user_id: uuid.UUID, body: UserPatch, db: Database = Depends(get_
     if user_id == m.id and body.is_active is False:
         raise AppError(409, "cannot_disable_self", "لا يمكنك إيقاف حسابك الحالي")
     with db.tx(m.id) as c:
-        row = c.execute(f"""UPDATE gms.app_users SET full_name=COALESCE(%s, full_name), is_active=COALESCE(%s, is_active),
-                 token_version = token_version + CASE WHEN %s IS FALSE THEN 1 ELSE 0 END
-                 WHERE id=%s RETURNING {USER_COLS}""", (body.full_name, body.is_active, body.is_active, user_id)).fetchone()
+        pw_hash = hash_password(body.password.strip()) if body.password and body.password.strip() else None
+        uname = body.username.strip().lower() if body.username and body.username.strip() else None
+        fname = body.full_name.strip() if body.full_name and body.full_name.strip() else None
+        row = c.execute(f"""UPDATE gms.app_users SET 
+                 username = COALESCE(%s, username),
+                 full_name = COALESCE(%s, full_name), 
+                 password_hash = COALESCE(%s, password_hash),
+                 must_change_password = CASE WHEN %s IS NOT NULL THEN false ELSE must_change_password END,
+                 is_active = COALESCE(%s, is_active),
+                 token_version = token_version + CASE WHEN %s IS NOT NULL OR %s IS FALSE THEN 1 ELSE 0 END
+                 WHERE id=%s RETURNING {USER_COLS}""",
+                        (uname, fname, pw_hash, pw_hash, body.is_active, pw_hash, body.is_active, user_id)).fetchone()
         if not row:
             raise AppError(404, "user_not_found", "المستخدم غير موجود")
-        if body.is_active is False:
+        if body.is_active is False or pw_hash is not None:
             c.execute("UPDATE gms.auth_refresh_tokens SET revoked_at=now() WHERE user_id=%s AND revoked_at IS NULL", (user_id,))
     return ok(row)
 

@@ -14,7 +14,7 @@ export default function Users() {
   const reload = () => u.reload();
   return (
     <div className="stack">
-      <PageHeader title="الموظفون والحسابات" subtitle="المدير وحده ينشئ الحسابات ويصدر كلمات مرور مؤقتة يلزم تغييرها ورموز تفعيل الهواتف." actions={<Button variant="primary" onClick={() => setDialog({ kind: "new" })}>+ حساب جديد</Button>} />
+      <PageHeader title="الموظفون والحسابات" subtitle="المدير يملك التحكم الكامل بأسماء المستخدمين وكلمات المرور المباشرة وتكليف المناطق." actions={<Button variant="primary" onClick={() => setDialog({ kind: "new" })}>+ حساب جديد</Button>} />
       <ErrorBox error={act.error} />
       <Card>
         {u.loading && !u.data ? <Loading /> : u.error ? <ErrorBox error={u.error} /> : !u.data?.length ? <Empty>لا يوجد مستخدمون.</Empty> : (
@@ -23,21 +23,19 @@ export default function Users() {
             <tbody>{u.data.map((x) => (
               <tr key={x.id}>
                 <td>{x.full_name}</td><td className="ltr">{x.username}</td><td>{x.role === "manager" ? "مدير" : "موظف ميداني"}</td>
-                <td>{x.is_active ? <Badge tone="ok">فعّال</Badge> : <Badge>موقوف</Badge>} {x.must_change_password && <Badge tone="warn">كلمة مرور مؤقتة</Badge>} {x.locked_until && new Date(x.locked_until) > new Date() && <Badge tone="danger">مقفل مؤقتًا</Badge>}</td>
+                <td>{x.is_active ? <Badge tone="ok">فعّال</Badge> : <Badge>موقوف</Badge>} {x.locked_until && new Date(x.locked_until) > new Date() && <Badge tone="danger">مقفل مؤقتًا</Badge>}</td>
                 <td>{x.role === "employee" ? <>{(x.zones ?? []).map((z: any) => <span key={z.grant_id} className="badge badge-info" style={{ marginInlineEnd: 4 }}>{z.zone_name} <button className="icon-btn" style={{ fontSize: 11, padding: "0 2px" }} title="إنهاء الصلاحية" onClick={() => act.run(() => api(`zone-grants/${z.grant_id}/end`, { method: "POST" }), "أُنهيت صلاحية المنطقة").then(reload)}>✕</button></span>)}
                   <Button variant="ghost" onClick={() => setDialog({ kind: "grant", user: x })}>+ منطقة</Button></> : "—"}</td>
                 <td>{x.active_device ? <>{x.active_device.label}<div className="muted">آخر ظهور {dt(x.active_device.last_seen_at)}</div></> : x.role === "employee" ? <Badge tone="warn">لا يوجد</Badge> : "—"}</td>
                 <td className="row gap">
-                  {x.role === "employee" && x.is_active && <Button variant="ghost" onClick={() => act.run(() => api(`users/${x.id}/enrollment-codes`, { method: "POST" })).then((r: any) => r && setSecret({ title: `رمز تفعيل هاتف ${x.full_name}`, value: r.code, note: `صالح لمرة واحدة حتى ${dt(r.expires_at)}. تفعيل هاتف جديد يوقف الهاتف السابق.` }))}>رمز تفعيل هاتف</Button>}
-                  <Button variant="ghost" onClick={() => act.run(() => api(`users/${x.id}/reset-password`, { method: "POST" })).then((r: any) => { if (r) { setSecret({ title: `كلمة مرور مؤقتة — ${x.full_name}`, value: r.temporary_password, note: "سلّمها للمستخدم شخصيًا؛ يجب تغييرها عند أول دخول. أُنهيت جلساته الحالية." }); reload(); } })}>كلمة مرور مؤقتة</Button>
-                  <Button variant="ghost" onClick={() => setDialog({ kind: "edit", user: x })}>تعديل</Button>
+                  <Button variant="primary" onClick={() => setDialog({ kind: "edit", user: x })}>تعديل الحساب</Button>
                 </td>
               </tr>
             ))}</tbody>
           </table></div>
         )}
       </Card>
-      {dialog?.kind === "new" && <NewUser onClose={() => setDialog(null)} onDone={(r: any) => { setDialog(null); reload(); setSecret({ title: `تم إنشاء حساب ${r.full_name}`, value: r.temporary_password, note: "كلمة المرور المؤقتة تظهر مرة واحدة فقط." }); }} />}
+      {dialog?.kind === "new" && <NewUser onClose={() => setDialog(null)} onDone={() => { setDialog(null); reload(); }} />}
       {dialog?.kind === "edit" && <EditUser user={dialog.user} onClose={() => setDialog(null)} onDone={() => { setDialog(null); reload(); }} />}
       {dialog?.kind === "grant" && <GrantDialog user={dialog.user} zones={zones} onClose={() => setDialog(null)} onDone={() => { setDialog(null); reload(); }} />}
       <Modal open={!!secret} onClose={() => setSecret(null)} title={secret?.title ?? ""} footer={<Button onClick={() => setSecret(null)}>تم</Button>}>
@@ -49,13 +47,14 @@ export default function Users() {
 }
 
 function NewUser({ onClose, onDone }: any) {
-  const [f, setF] = useState({ username: "", full_name: "", role: "employee" });
+  const [f, setF] = useState({ username: "", full_name: "", password: "", role: "employee" });
   const { busy, error, run } = useAction();
   return (
     <Modal open onClose={onClose} title="حساب جديد" footer={<><Button variant="primary" busy={busy} onClick={async () => { const r = await run(() => api("users", { body: f })); if (r) onDone(r); }}>إنشاء</Button><Button onClick={onClose}>إلغاء</Button></>}>
       <div className="stack">
-        <Field label="الاسم الكامل" required><input value={f.full_name} onChange={(e) => setF({ ...f, full_name: e.target.value })} /></Field>
-        <Field label="اسم المستخدم" required hint="أحرف لاتينية وأرقام و . _ -"><input dir="ltr" value={f.username} onChange={(e) => setF({ ...f, username: e.target.value })} /></Field>
+        <Field label="الاسم الكامل" required><input value={f.full_name} onChange={(e) => setF({ ...f, full_name: e.target.value })} placeholder="مثال: أحمد محمد" /></Field>
+        <Field label="اسم المستخدم" required hint="أحرف لاتينية وأرقام (مثل: ahmed)"><input dir="ltr" value={f.username} onChange={(e) => setF({ ...f, username: e.target.value })} placeholder="username" /></Field>
+        <Field label="كلمة المرور الدائمة" required hint="كلمة مرور مباشرة للحساب (8 خانات على الأقل وتجمع بين أحرف وأرقام)"><input type="password" dir="ltr" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} placeholder="••••••••" /></Field>
         <Field label="الدور"><select value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })}><option value="employee">موظف ميداني (تطبيق Android)</option><option value="manager">مدير (لوحة الويب)</option></select></Field>
         <ErrorBox error={error} />
       </div>
@@ -64,12 +63,18 @@ function NewUser({ onClose, onDone }: any) {
 }
 
 function EditUser({ user, onClose, onDone }: any) {
-  const [f, setF] = useState({ full_name: user.full_name, is_active: user.is_active });
+  const [f, setF] = useState({ username: user.username, full_name: user.full_name, password: "", is_active: user.is_active });
   const { busy, error, run } = useAction();
   return (
-    <Modal open onClose={onClose} title={`تعديل ${user.full_name}`} footer={<><Button variant="primary" busy={busy} onClick={async () => (await run(() => api(`users/${user.id}`, { method: "PATCH", body: f }), "تم الحفظ")) && onDone()}>حفظ</Button><Button onClick={onClose}>إلغاء</Button></>}>
+    <Modal open onClose={onClose} title={`تعديل حساب ${user.full_name}`} footer={<><Button variant="primary" busy={busy} onClick={async () => {
+      const payload: any = { username: f.username.trim(), full_name: f.full_name.trim(), is_active: f.is_active };
+      if (f.password.trim()) payload.password = f.password.trim();
+      (await run(() => api(`users/${user.id}`, { method: "PATCH", body: payload }), "تم حفظ التعديلات")) && onDone();
+    }}>حفظ التعديلات</Button><Button onClick={onClose}>إلغاء</Button></>}>
       <div className="stack">
         <Field label="الاسم الكامل"><input value={f.full_name} onChange={(e) => setF({ ...f, full_name: e.target.value })} /></Field>
+        <Field label="اسم المستخدم" hint="أحرف لاتينية وأرقام"><input dir="ltr" value={f.username} onChange={(e) => setF({ ...f, username: e.target.value })} /></Field>
+        <Field label="تعيين كلمة مرور جديدة" hint="اتركها فارغة إذا لم ترغب بتغييرها"><input type="password" dir="ltr" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} placeholder="اتركها فارغة للإبقاء على الحالية" /></Field>
         <label className="checkbox"><input type="checkbox" checked={f.is_active} onChange={(e) => setF({ ...f, is_active: e.target.checked })} /> الحساب فعّال (الإيقاف ينهي الجلسات فورًا)</label>
         <ErrorBox error={error} />
       </div>

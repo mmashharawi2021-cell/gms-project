@@ -114,10 +114,14 @@ def login(body: LoginIn, request: Request, db: Database = Depends(get_db)):
                          (u["id"], body.install_id))
             if not row:
                 with db.tx() as c:
-                    c.execute("INSERT INTO gms.sync_rejections(user_id, reason, detail) VALUES (%s,'device_not_enrolled',%s::jsonb)",
-                              (u["id"], _json({"ip": _client_ip(request)})))
-                raise AppError(403, "device_not_enrolled", "هذا الهاتف غير مفعّل؛ أدخل رمز التفعيل الذي يصدره المدير")
-            device_id = row["id"]
+                    c.execute("""UPDATE gms.mobile_devices SET is_active = false, revoked_at = now(), revoke_reason = 'تسجيل دخول جديد'
+                                 WHERE is_active AND (employee_id = %s OR install_id = %s)""", (u["id"], body.install_id))
+                    c.execute("UPDATE gms.auth_refresh_tokens SET revoked_at = now() WHERE user_id = %s AND client_kind = 'mobile' AND revoked_at IS NULL", (u["id"],))
+                    device_id = c.execute("""INSERT INTO gms.mobile_devices(employee_id, install_id, device_label)
+                                             VALUES (%s, %s, %s) RETURNING id""",
+                                          (u["id"], body.install_id, (body.device_label or "Android").strip()[:100])).fetchone()["id"]
+            else:
+                device_id = row["id"]
     tokens = issue_tokens(request, u, device_id, body.client)
     _audit(db, u["id"], "LOGIN_OK", u["id"], {"ip": _client_ip(request), "client": body.client, "device_id": device_id})
     return ok({**tokens, "user": _user_view(u, device_id)})
