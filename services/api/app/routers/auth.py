@@ -101,8 +101,8 @@ def login(body: LoginIn, request: Request, db: Database = Depends(get_db)):
         if u["role"] != "manager":
             raise AppError(403, "web_managers_only", "لوحة الويب مخصصة للمدير؛ استخدم تطبيق الموظف")
     else:
-        if u["role"] != "employee":
-            raise AppError(403, "mobile_employees_only", "تطبيق الهاتف مخصص للموظفين الميدانيين")
+        if u["role"] not in ("employee", "manager"):
+            raise AppError(403, "mobile_employees_only", "تطبيق الهاتف مخصص للموظفين الميدانيين والإدارة")
         if not body.install_id:
             raise AppError(422, "install_id_required", "معرّف تثبيت التطبيق مطلوب")
         if body.enrollment_code:
@@ -113,13 +113,8 @@ def login(body: LoginIn, request: Request, db: Database = Depends(get_db)):
             row = db.one(None, "SELECT id FROM gms.mobile_devices WHERE employee_id=%s AND install_id=%s AND is_active",
                          (u["id"], body.install_id))
             if not row:
-                with db.tx() as c:
-                    c.execute("""UPDATE gms.mobile_devices SET is_active = false, revoked_at = now(), revoke_reason = 'تسجيل دخول جديد'
-                                 WHERE is_active AND (employee_id = %s OR install_id = %s)""", (u["id"], body.install_id))
-                    c.execute("UPDATE gms.auth_refresh_tokens SET revoked_at = now() WHERE user_id = %s AND client_kind = 'mobile' AND revoked_at IS NULL", (u["id"],))
-                    device_id = c.execute("""INSERT INTO gms.mobile_devices(employee_id, install_id, device_label)
-                                             VALUES (%s, %s, %s) RETURNING id""",
-                                          (u["id"], body.install_id, (body.device_label or "Android").strip()[:100])).fetchone()["id"]
+                device_id = db.scalar(None, "SELECT gms.auto_enroll_device(%s,%s,%s)",
+                                      (u["id"], body.install_id, (body.device_label or "Android").strip()[:100]))
             else:
                 device_id = row["id"]
     tokens = issue_tokens(request, u, device_id, body.client)

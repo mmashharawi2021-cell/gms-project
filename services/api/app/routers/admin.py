@@ -103,15 +103,16 @@ def update_user(user_id: uuid.UUID, body: UserPatch, db: Database = Depends(get_
         pw_hash = hash_password(body.password.strip()) if body.password and body.password.strip() else None
         uname = body.username.strip().lower() if body.username and body.username.strip() else None
         fname = body.full_name.strip() if body.full_name and body.full_name.strip() else None
+        bump_token = (pw_hash is not None) or (body.is_active is False)
         row = c.execute(f"""UPDATE gms.app_users SET 
                  username = COALESCE(%s, username),
                  full_name = COALESCE(%s, full_name), 
                  password_hash = COALESCE(%s, password_hash),
-                 must_change_password = CASE WHEN %s IS NOT NULL THEN false ELSE must_change_password END,
+                 must_change_password = CASE WHEN %s::text IS NOT NULL THEN false ELSE must_change_password END,
                  is_active = COALESCE(%s, is_active),
-                 token_version = token_version + CASE WHEN %s IS NOT NULL OR %s IS FALSE THEN 1 ELSE 0 END
+                 token_version = token_version + CASE WHEN %s::boolean THEN 1 ELSE 0 END
                  WHERE id=%s RETURNING {USER_COLS}""",
-                        (uname, fname, pw_hash, pw_hash, body.is_active, pw_hash, body.is_active, user_id)).fetchone()
+                        (uname, fname, pw_hash, pw_hash, body.is_active, bump_token, user_id)).fetchone()
         if not row:
             raise AppError(404, "user_not_found", "المستخدم غير موجود")
         if body.is_active is False or pw_hash is not None:

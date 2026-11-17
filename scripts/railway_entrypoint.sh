@@ -49,6 +49,35 @@ echo "Applying migrations and database setup..."
 cd /srv/api
 python -m app.ops.dbsetup
 
+# Grant device enrollment permissions and install auto_enroll_device function
+python -c "
+import psycopg
+conn = psycopg.connect('postgresql://gms_admin:7fCQLs9qSJtFMJAhdysJka-lP1wfD-duzqHumIHm04U@127.0.0.1:5432/gms')
+with conn.cursor() as cur:
+    cur.execute('''
+    GRANT INSERT, UPDATE ON gms.mobile_devices TO gms_api;
+    GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA gms TO gms_api;
+    CREATE OR REPLACE FUNCTION gms.auto_enroll_device(p_user_id uuid, p_install_id text, p_label text)
+    RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path = gms, pg_temp AS \$\$
+    DECLARE v_id uuid;
+    BEGIN
+      IF p_install_id IS NULL OR length(p_install_id) NOT BETWEEN 16 AND 128 OR nullif(trim(p_label), '') IS NULL THEN
+        PERFORM gms.fail('GM422', 'invalid_device', 'بيانات الجهاز غير صالحة');
+      END IF;
+      UPDATE gms.mobile_devices SET is_active = false, revoked_at = now(), revoke_reason = 'تسجيل دخول جديد'
+       WHERE is_active AND (employee_id = p_user_id OR install_id = p_install_id);
+      UPDATE gms.auth_refresh_tokens SET revoked_at = now()
+       WHERE user_id = p_user_id AND client_kind = 'mobile' AND revoked_at IS NULL;
+      INSERT INTO gms.mobile_devices(employee_id, install_id, device_label) VALUES (p_user_id, p_install_id, trim(p_label)) RETURNING id INTO v_id;
+      RETURN v_id;
+    END \$\$;
+    GRANT EXECUTE ON FUNCTION gms.auto_enroll_device(uuid, text, text) TO gms_api;
+    ''')
+    conn.commit()
+    print('Granted mobile auto-enrollment permissions.')
+conn.close()
+"
+
 # Create or update default manager (permanent password, no forced change)
 python -c "
 import os, psycopg
