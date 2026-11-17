@@ -57,7 +57,12 @@ class ApiClient implements FieldApi {
   }
 
   dynamic _decode(http.Response r) {
-    final body = r.bodyBytes.isEmpty ? null : jsonDecode(utf8.decode(r.bodyBytes));
+    dynamic body;
+    try {
+      body = r.bodyBytes.isEmpty ? null : jsonDecode(utf8.decode(r.bodyBytes));
+    } catch (_) {
+      throw ApiException(r.statusCode, 'invalid_response', 'استجابة غير متوقعة من الخادم (رمز ${r.statusCode})');
+    }
     if (r.statusCode >= 200 && r.statusCode < 300) return body;
     final e = (body is Map && body['error'] is Map) ? body['error'] as Map : const {};
     throw ApiException(r.statusCode, (e['code'] ?? 'http_${r.statusCode}').toString(), (e['message'] ?? 'تعذر تنفيذ الطلب').toString());
